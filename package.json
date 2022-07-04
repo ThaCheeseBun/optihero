@@ -1,0 +1,17 @@
+{
+  "name": "optihero",
+  "version": "1.0.0",
+  "description": "Clone Hero Chart Optimizer",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "ThaCheeseBun",
+  "license": "ISC",
+  "dependencies": {
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^6.0.0"
+  }
+}
