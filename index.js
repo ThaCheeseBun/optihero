@@ -1,6 +1,5 @@
 import { resolve, relative, extname } from "path";
-import { createReadStream } from "fs";
-import { readdir, stat, rm } from "fs/promises";
+import { writeFile, readFile, readdir, stat, rm } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { EOL } from "os";
@@ -8,8 +7,23 @@ import { EOL } from "os";
 import { decode, encode } from "jpeg-js";
 import { PNG } from "pngjs";
 
-// promise version of exec
+// constants
+const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+const JPG_HEADER = Buffer.from([0xFF, 0xD8, 0xFF]);
+
+// promise version of other functions
 const execAsync = promisify(exec);
+const parseAsync = function (data)
+{
+    return new Promise((res, rej) =>
+    {
+        new PNG({ colorType: 2 }).parse(data, (e, d) =>
+        {
+            if (e) rej(e);
+            else res(d);
+        })
+    });
+};
 
 // walkdir function
 // https://stackoverflow.com/a/45130990/10676520
@@ -24,22 +38,6 @@ async function* getFiles(dir)
         else
             yield res;
     }
-}
-
-// helper function for decoding images
-async function decodeImg(p)
-{
-    const png_header = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-    const jpg_header = Buffer.from([0xFF, 0xD8, 0xFF]);
-
-    // init stuff
-    const stream = createReadStream(p);
-
-    // figure out format
-    const data = stream.read(8);
-    if (data.equals(png_header))
-    console.log();
-    console.log(data.subarray(0, 3).equals(jpg_header))
 }
 
 // wrap main function
@@ -64,7 +62,7 @@ async function decodeImg(p)
     // loop through each file
     for await (const f of getFiles(p))
     {
-        const ext = extname(f);
+        const ext = extname(f).toLowerCase();
 
         // log progress
         console.log(relative(p, f));
@@ -76,6 +74,7 @@ async function decodeImg(p)
             // music file optimzing
             case ".ogg":
             case ".mp3":
+            case ".wav":
 
                 // get bit rate of original
                 const probe = await execAsync([
@@ -92,6 +91,12 @@ async function decodeImg(p)
                     // use original bitrate divided by two
                     // gives roughly the same quality
                     bit_rate = Number(probe_out.split("=")[1]) / 2;
+
+                // put a low and high cap on bit_rate
+                if (bit_rate < 64000)
+                    bit_rate = 64000;
+                else if (bit_rate > 256000)
+                    bit_rate = 256000;
 
                 // process file to opus
                 await execAsync([
@@ -110,7 +115,34 @@ async function decodeImg(p)
             case ".png":
             case ".jpg":
             case ".jpeg":
-                
+
+                // read input file
+                const data = await readFile(f);
+
+                // figure out format
+                let raw = null;
+                if (data.subarray(0, 8).equals(PNG_HEADER))
+                    raw = await parseAsync(data);
+                else if (data.subarray(0, 3).equals(JPG_HEADER))
+                    raw = decode(data);
+
+                // remove original
+                await rm(f);
+
+                // encode jpg
+                const out = encode({
+                    data: raw.data,
+                    width: raw.width,
+                    height: raw.height,
+                }, 60);
+
+                await writeFile(f.replace(extname(f), ".jpg"), out.data);
+                break;
+
+            // remove unnecessary files
+            case ".ini":
+                if (f.endsWith("desktop.ini"))
+                    await rm(f);
                 break;
 
         }
