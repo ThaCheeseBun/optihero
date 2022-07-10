@@ -87,10 +87,15 @@ async function* getFiles(dir)
 
                 // assume original is 256 kbit/s if none specified
                 let bit_rate = 128000;
-                if (probe_out.startsWith("bit_rate"))
-                    // use original bitrate divided by two
-                    // gives roughly the same quality
-                    bit_rate = Number(probe_out.split("=")[1]) / 2;
+                if (probe_out.startsWith("bit_rate")) {
+                    // check if bitrate is number
+                    // some files are broken idfk
+                    const x = probe_out.split("=")[1];
+                    if (!isNaN(x))
+                        // use original bitrate divided by two
+                        // gives roughly the same quality
+                        bit_rate = Number(x) / 2;
+                }
 
                 // put a low and high cap on bit_rate
                 if (bit_rate < 64000)
