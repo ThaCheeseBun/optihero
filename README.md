@@ -1,22 +1,9 @@
 # OptiHero
-Clone Hero chart optimizer.
+Clone Hero chart optimizer. OptiHero converts common Clone Hero chart formats to more efficient ones and removes unnecessary files.
+* Audio files are converted to Opus 96kbps/48kbps (Supported in version 1.0+)
+* Image files are converted to JPG (Quality 70). Album cover is scaled to 500x500, background is scaled to 3840x2160.
+* Video files are converted to MP4 (libx264 crf=26, no audio, max 720p).
+* `song.ini`, `notes.chart` and `notes.mid` are kept intact. All other files not used by the game are removed.
 
 # Usage
-Install **FFmpeg** and **FFprobe** and add them to your path.\
-Install all dependencies using `npm i`.\
-Example:
-```
-node . "C:\\Games\\Clone Hero\\Songs"
-```
-The script will recursively convert all files in the specified directory.
-
-# How does it work?
-OptiHero converts common Clone Hero chart formats to more efficient ones.
-* Audio converts to [Opus](https://opus-codec.org) (Only supported in PTB)
-* Images converts to JPG (Quality 60)
-
-# TODO
-* ~~Optimize audio~~
-* ~~Optimize images~~
-* Optimize videos
-* Optimize notes/chart
+Install FFmpeg and it to your path. Install the dependencies and run `node . "/path/to/songs/goes/here"`. All songs will recursively be optimized.

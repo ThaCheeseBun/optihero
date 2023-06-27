@@ -1,156 +1,184 @@
-import { resolve, relative, extname } from "path";
-import { writeFile, readFile, readdir, stat, rm } from "fs/promises";
-import { exec } from "child_process";
-import { promisify } from "util";
-import { EOL } from "os";
+import { resolve, relative, extname, basename } from "node:path";
+import { readdir, stat, rm, rename } from "node:fs/promises";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import Jimp from "jimp";
 
-import { decode, encode } from "jpeg-js";
-import { PNG } from "pngjs";
-
-// constants
-const PNG_HEADER = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-const JPG_HEADER = Buffer.from([0xFF, 0xD8, 0xFF]);
+// all files the game uses
+const AUDIO_FILES = [
+    "guitar", "bass", "rhythm", "vocals", "vocals_1", "vocals_2", "drums", "drums_1", "drums_2", "drums_3", "drums_4", "keys", "song", "crowd",
+    "preview"
+];
+const IMAGE_FILES = [
+    "album", "background", "highway"
+];
+const VIDEO_FILES = [
+    "video"
+];
+const OTHER_FILES = [
+    "song.ini", "notes.mid", "notes.chart"
+];
 
 // promise version of other functions
 const execAsync = promisify(exec);
-const parseAsync = function (data)
-{
-    return new Promise((res, rej) =>
-    {
-        new PNG({ colorType: 2 }).parse(data, (e, d) =>
-        {
-            if (e) rej(e);
-            else res(d);
-        })
-    });
-};
 
 // walkdir function
 // https://stackoverflow.com/a/45130990/10676520
-async function* getFiles(dir)
-{
+async function* getFiles(dir) {
     const dirents = await readdir(dir, { withFileTypes: true });
-    for (const dirent of dirents)
-    {
+    for (const dirent of dirents) {
         const res = resolve(dir, dirent.name);
-        if (dirent.isDirectory())
+        if (dirent.isDirectory()) {
             yield* getFiles(res);
-        else
+        } else {
             yield res;
+        }
     }
 }
 
-// wrap main function
-(async () => {
+// we need a path jesse
+if (process.argv.length < 3) {
+    console.error("please specify a path.");
+    process.exit(1);
+}
 
-    // we need a path jesse
-    if (process.argv.length < 3)
-        return console.error("no path given");
+// check if it exists / has permission / whatever
+const p = resolve(process.argv[2]);
+try {
+    await stat(p);
+} catch (e) {
+    console.error("can't access path. does it exist?");
+    process.exit(1);
+}
 
-    // check if it exists / has permission / whatever
-    const p = process.argv[2];
-    try
-    {
-        await stat(p);
-    }
-    catch (e)
-    {
-        console.error("no exist");
-        return process.exit(0);
-    }
+// loop through each file
+for await (const f of getFiles(p)) {
+    // log progress
+    console.log(relative(p, f));
+    const base = basename(f, extname(f)).toLowerCase();
 
-    // loop through each file
-    for await (const f of getFiles(p))
-    {
-        const ext = extname(f).toLowerCase();
+    // switch for each supported format
+    switch (extname(f).toLowerCase()) {
 
-        // log progress
-        console.log(relative(p, f));
+        // music file optimzing
+        case ".ogg":
+        case ".mp3":
+        case ".wav":
+        case ".opus":
 
-        // switch for each supported format
-        switch (ext)
-        {
-
-            // music file optimzing
-            case ".ogg":
-            case ".mp3":
-            case ".wav":
-
-                // get bit rate of original
-                const probe = await execAsync([
-                    "ffprobe",
-                    "-i", `"${f}"`,
-                    "-v", "error",
-                    "-show_entries", "stream=bit_rate",
-                ].join(" "));
-                const probe_out = probe.stdout.split(EOL)[1];
-
-                // assume original is 256 kbit/s if none specified
-                let bit_rate = 128000;
-                if (probe_out.startsWith("bit_rate")) {
-                    // check if bitrate is number
-                    // some files are broken idfk
-                    const x = probe_out.split("=")[1];
-                    if (!isNaN(x))
-                        // use original bitrate divided by two
-                        // gives roughly the same quality
-                        bit_rate = Number(x) / 2;
-                }
-
-                // put a low and high cap on bit_rate
-                if (bit_rate < 64000)
-                    bit_rate = 64000;
-                else if (bit_rate > 256000)
-                    bit_rate = 256000;
-
-                // process file to opus
-                await execAsync([
-                    "ffmpeg",
-                    "-i", `"${f}"`,
-                    "-map", "0:a",
-                    "-b:a", bit_rate,
-                    `"${f.replace(extname(f), ".opus")}"`
-                ].join(" "));
-
-                // remove original
+            // check if used by the game
+            if (!AUDIO_FILES.includes(base)) {
                 await rm(f);
                 break;
-            
-            // image optimizing
-            case ".png":
-            case ".jpg":
-            case ".jpeg":
+            }
 
-                // read input file
-                const data = await readFile(f);
+            // probe original info
+            const probe_str = await execAsync([
+                "ffprobe",
+                "-i", `"${f}"`,
+                "-v", "error",
+                "-of", "json",
+                "-show_streams"
+            ].join(" "));
+            const probe = JSON.parse(probe_str.stdout);
+            const audios = probe.streams.filter(x => x.codec_type === "audio");
 
-                // figure out format
-                let raw = null;
-                if (data.subarray(0, 8).equals(PNG_HEADER))
-                    raw = await parseAsync(data);
-                else if (data.subarray(0, 3).equals(JPG_HEADER))
-                    raw = decode(data);
+            // eh, yeah thats broken
+            if (audios.length < 0) {
+                console.error("\n[ERROR] No audio tracks present, skipping.\n");
+                break;
+            }
 
-                // remove original
+            // process file to opus
+            const temp = f.replace(extname(f), ".opus.optihero");
+            await execAsync([
+                "ffmpeg",
+                "-i", `"${f}"`,
+                "-map", "0:a:0",
+                "-c", "libopus",
+                "-ac", audios[0].channels === 1 ? 1 : 2,
+                "-b:a", (audios[0].channels === 1 ? 48 : 96) * 1000,
+                "-f", "ogg",
+                `"${temp}"`
+            ].join(" "));
+
+            // remove original
+            await rm(f);
+
+            // move temp to replace
+            await rename(temp, temp.replace(".optihero", ""));
+            break;
+
+        // image optimizing
+        case ".png":
+        case ".jpg":
+        case ".jpeg":
+
+            // again, check if used by the game
+            if (!IMAGE_FILES.includes(base)) {
                 await rm(f);
-
-                // encode jpg
-                const out = encode({
-                    data: raw.data,
-                    width: raw.width,
-                    height: raw.height,
-                }, 60);
-
-                await writeFile(f.replace(extname(f), ".jpg"), out.data);
                 break;
+            }
 
-            // remove unnecessary files
-            case ".ini":
-                if (f.endsWith("desktop.ini"))
-                    await rm(f);
+            // read input file
+            const img = await Jimp.read(f);
+
+            // remove original
+            await rm(f);
+
+            // resize image
+            if (base === "album" && (img.getWidth() > 500 || img.getHeight() > 500)) {
+                img.scaleToFit(500, 500, Jimp.RESIZE_BICUBIC);
+            } else if (base === "background" && (img.getWidth() > 3840 || img.getHeight() > 2160)) {
+                img.scaleToFit(3840, 2160, Jimp.RESIZE_BICUBIC);
+            }
+
+            // set jpeg quality
+            img.quality(70);
+
+            await img.writeAsync(f.replace(extname(f), ".jpg"));
+            break;
+
+        // video optimizing
+        case ".mp4":
+        case ".avi":
+        case ".webm":
+        case ".vp8":
+        case ".ogv":
+        case ".mpeg":
+
+            // again, check if used by the game
+            if (!VIDEO_FILES.includes(base)) {
+                await rm(f);
                 break;
+            }
 
-        }
+            // just do the thing
+            const temp2 = f.replace(extname(f), ".mp4.optihero");
+            await execAsync([
+                "ffmpeg",
+                "-i", `"${f}"`,
+                "-map", "0:v:0",
+                "-c", "libx264",
+                "-crf", "26",
+                "-preset", "veryslow",
+				"-vf", "\"scale=-2:'min(720,ih)'\"",
+                "-f", "mp4",
+                `"${temp2}"`
+            ].join(" "));
+
+            // remove original
+            await rm(f);
+
+            // move temp to replace
+            await rename(temp2, temp2.replace(".optihero", ""));
+            break;
+
+        // remove unnecessary files
+        default:
+            if (!OTHER_FILES.includes(basename(f).toLowerCase())) {
+                await rm(f);
+            }
+
     }
-
-})();
+}
