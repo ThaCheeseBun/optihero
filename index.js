@@ -94,7 +94,9 @@ for await (const f of getFiles(p)) {
             await execAsync([
                 "ffmpeg",
                 "-i", `"${f}"`,
-                "-map", "0:a:0",
+                "-map", "0:a:0?",
+                "-map_metadata", "-1",
+                "-map_chapters", "-1",
                 "-c", "libopus",
                 "-ac", audios[0].channels === 1 ? 1 : 2,
                 "-b:a", (audios[0].channels === 1 ? 48 : 96) * 1000,
@@ -154,16 +156,21 @@ for await (const f of getFiles(p)) {
             }
 
             // just do the thing
-            const temp2 = f.replace(extname(f), ".mp4.optihero");
+            const temp2 = f.replace(extname(f), ".webm.optihero");
             await execAsync([
                 "ffmpeg",
                 "-i", `"${f}"`,
-                "-map", "0:v:0",
-                "-c", "libx264",
+                "-map", "0:v:0?",
+                "-map_metadata", "-1",
+                "-map_chapters", "-1",
+                "-c", "libvpx",
                 "-crf", "26",
-                "-preset", "veryslow",
+                "-quality", "good",
+                "-cpu-used", "0",
+                "-pix_fmt", "yuv420p",
+                "-b:v", "2M",
 				"-vf", "\"scale=-2:'min(720,ih)'\"",
-                "-f", "mp4",
+                "-f", "webm",
                 `"${temp2}"`
             ].join(" "));
 
